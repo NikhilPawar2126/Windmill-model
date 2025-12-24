@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Model Viewer AR - VR</title>
+
+    <!-- A-Frame -->
+    <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js" crossorigin="anonymous"></script>
+
+    <!-- MQTT -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+    <!-- Howler Sound -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.3/howler.min.js"></script>
+  </head>
+
+  <body style="background: linear-gradient(black, gray);">
+
+    <a-scene renderer="colorManagement: true;">
+      <a-camera position="0 1.6 0" id="camera"></a-camera>
+
+      <a-assets timeout="10000">
+        <a-asset-item
+          id="windmill"
+          src="https://cdn.glitch.global/b14b2b63-fce8-4f1a-9bc3-4ac26923c6a7/windmill2.glb?v=1736698274757"
+          response-type="arraybuffer">
+        </a-asset-item>
+      </a-assets>
+
+      <a-entity id="model"
+        gltf-model="#windmill"
+        position="0.1 -0.7 -5"
+        rotation="-3.9 0 0"
+        scale="3 3 3"
+        animation-mixer="clip: Animation; timeScale: 0; loop:repeat">
+      </a-entity>
+
+      <!-- Display Text -->
+      <a-text id="circle1-text" value="" position="-1.1 1.1 -4" scale="0.7 0.7 0.7" color="yellow"></a-text>
+      <a-text id="circle2-text" value="" position="1 1.1 -4" scale="0.7 0.7 0.7" color="yellow"></a-text>
+      <a-text id="circle3-text" value="" position="-1.3 0.1 -4" scale="0.7 0.7 0.7" color="yellow"></a-text>
+      <a-text id="circle4-text" value="" position="1 0.1 -4" scale="0.7 0.7 0.7" color="yellow"></a-text>
+
+      <a-text value="ON/OFF"       position="-1.3 0.6 -4"  scale="0.7 0.7 0.7" color="yellow"></a-text>
+      <a-text value="SPEED"        position="1 0.6 -4"    scale="0.7 0.7 0.7" color="yellow"></a-text>
+      <a-text value="TEMP"         position="-1.5 -0.4 -4" scale="0.7 0.7 0.7" color="yellow"></a-text>
+      <a-text value="HUMIDITY"     position="0.9 -0.4 -4"  scale="0.7 0.7 0.7" color="yellow"></a-text>
+    </a-scene>
+
+    <script>
+      let mqttClient;
+      const topic = "Equanimous/AR/sensor";
+      const clipName = "Animation";
+
+      // -----------------------------
+      // SOUND SETUP
+      // -----------------------------
+      const sound = new Howl({
+        src: ["https://cdn.glitch.global/b14b2b63-fce8-4f1a-9bc3-4ac26923c6a7/windmill%20file.mp3?v=1736331497703"],
+        loop: true,
+        volume: 0.5,
+        rate: 1.0,
+        autoplay: false
+      });
+
+      // 🔓 Unlock sound when user taps the screen (browser rule)
+      window.addEventListener("click", () => {
+        try {
+          sound.play();
+          sound.pause();
+        } catch (e) {}
+      });
+
+      // -----------------------------
+      // MQTT CONNECT
+      // -----------------------------
+      function connectToBroker() {
+        const clientId = "client_" + Math.random().toString(36).substring(7);
+
+        const host = "wss://broker.hivemq.com:8884/mqtt";
+
+        const options = {
+          keepalive: 60,
+          clientId,
+          protocolId: "MQTT",
+          protocolVersion: 4,
+          clean: true,
+          reconnectPeriod: 1000,
+          connectTimeout: 30000,
+        };
+
+        mqttClient = mqtt.connect(host, options);
+
+        mqttClient.on("connect", () => {
+          console.log("Connected as " + clientId);
+          mqttClient.subscribe(topic);
+        });
+
+        mqttClient.on("error", err => {
+          console.log("MQTT Error:", err);
+          mqttClient.end();
+        });
+
+        mqttClient.on("reconnect", () => {
+          console.log("Reconnecting...");
+        });
+
+        mqttClient.on("message", (topic, message) => {
+          handleIncoming(JSON.parse(message.toString()));
+        });
+      }
+
+      // -----------------------------
+      // NORMALIZE WINDMILL SPEED
+      // -----------------------------
+      function normalizeSpeed(potValue) {
+        const minSpeed = 0.1;
+        const maxSpeed = 2.0;
+        return ((potValue / 4095) * (maxSpeed - minSpeed)) + minSpeed;
+      }
+
+      // -----------------------------
+      // UPDATE MODEL + SOUND
+      // -----------------------------
+      function handleSwitchControl(switchValue, potValue) {
+        const model = document.querySelector("#model");
+        const speed = normalizeSpeed(potValue);
+
+        sound.rate(speed);
+
+        if (switchValue === 1) {
+          model.setAttribute("animation-mixer", `clip:${clipName}; timeScale:${speed}; loop:repeat`);
+          if (!sound.playing()) sound.play();
+        } else {
+          model.setAttribute("animation-mixer", `clip:${clipName}; timeScale:0; loop:repeat`);
+          sound.pause();
+        }
+      }
+
+      // -----------------------------
+      // HANDLE MQTT DATA
+      // -----------------------------
+      function handleIncoming(obj) {
+        const switchValue = parseInt(obj.Switch1) || 0;
+        const potValue = parseInt(obj.Pot1) || 0;
+        const tempValue = ((obj.Pot2 || 0) / 4095 * 100).toFixed(2);
+        const humidityValue = ((obj.Pot3 || 0) / 4095 * 100).toFixed(2);
+
+        handleSwitchControl(switchValue, potValue);
+
+        document.getElementById("circle1-text").setAttribute("value", switchValue);
+        document.getElementById("circle2-text").setAttribute("value", potValue);
+        document.getElementById("circle3-text").setAttribute("value", tempValue + "°C");
+        document.getElementById("circle4-text").setAttribute("value", humidityValue + "%");
+      }
+
+      connectToBroker();
+    </script>
+  </body>
+</html>
