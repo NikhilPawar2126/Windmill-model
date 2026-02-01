@@ -31,28 +31,27 @@ model-viewer{
   height:100vh;
 }
 
-/* ===== PANEL (RESPONSIVE + AR SAFE) ===== */
+/* ===== OVERLAY ROOT (REQUIRED FOR AR) ===== */
+#overlay{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+}
+
+/* ===== PANEL ===== */
 .panel{
-  position:fixed;
+  position:absolute;
   top:10px;
   left:10px;
   width:min(92vw,260px);
-  max-height:90vh;
+  max-height:85vh;
   background:linear-gradient(180deg,#020617,#020617);
   border-radius:14px;
   padding:12px;
   color:#e5e7eb;
   box-shadow:0 15px 35px rgba(0,0,0,0.6);
-  z-index:9999;
   overflow:auto;
-}
-
-/* Mobile optimization */
-@media (max-width:600px){
-  .panel{
-    font-size:12px;
-    padding:10px;
-  }
+  pointer-events:auto;
 }
 
 .panel h3{
@@ -65,6 +64,7 @@ model-viewer{
   display:flex;
   justify-content:space-between;
   margin:5px 0;
+  font-size:12px;
 }
 
 .label{color:#94a3b8;}
@@ -78,7 +78,7 @@ canvas{
 
 /* ===== AR BUTTON ===== */
 .ar-btn{
-  position:fixed;
+  position:absolute;
   bottom:16px;
   right:16px;
   padding:14px 18px;
@@ -88,7 +88,7 @@ canvas{
   color:#fff;
   font-weight:600;
   cursor:pointer;
-  z-index:9999;
+  pointer-events:auto;
   box-shadow:0 15px 35px rgba(0,0,0,0.6);
 }
 </style>
@@ -96,7 +96,6 @@ canvas{
 
 <body>
 
-<!-- MODEL (DOM OVERLAY ENABLED) -->
 <model-viewer
   id="model"
   src="Model/windmill.glb"
@@ -109,25 +108,36 @@ canvas{
   ar-scale="auto"
   ar-placement="floor"
   ar-dom-overlay
-  ar-dom-overlay-root="overlay"
+  ar-dom-overlay-root="#overlay"
   animation-loop="false">
 </model-viewer>
 
-<!-- OVERLAY ROOT (CRITICAL) -->
+<!-- OVERLAY -->
 <div id="overlay">
 
-  <!-- PANEL -->
   <div class="panel">
     <h3>🌬 Wind Turbine SCADA</h3>
-    <div class="stat"><span class="label">Status</span><span id="status" class="value off">OFF</span></div>
-    <div class="stat"><span class="label">Wind Speed</span><span id="wind" class="value">0.0 m/s</span></div>
-    <div class="stat"><span class="label">Rotor Load</span><span id="load" class="value">0 %</span></div>
-    <div class="stat"><span class="label">Power</span><span id="power" class="value">0 kW</span></div>
-    <canvas id="chart" height="110"></canvas>
+
+    <div class="stat"><span class="label">Status</span>
+      <span id="status" class="value off">OFF</span>
+    </div>
+
+    <div class="stat"><span class="label">Wind Speed</span>
+      <span id="wind" class="value">0.0 m/s</span>
+    </div>
+
+    <div class="stat"><span class="label">Rotor Load</span>
+      <span id="load" class="value">0 %</span>
+    </div>
+
+    <div class="stat"><span class="label">Power Output</span>
+      <span id="power" class="value">0 kW</span>
+    </div>
+
+    <canvas id="chart" height="100"></canvas>
   </div>
 
   <button class="ar-btn" id="arBtn">View in AR</button>
-
 </div>
 
 <script>
@@ -215,12 +225,12 @@ client.on("message",(_,msg)=>{
     }
     chart.update();
 
-    if(!sw || norm===0){
+    if(!sw || norm === 0){
       stopSystem();
       return;
     }
 
-    const targetSpeed = 0.1 + norm * 2.5;
+    const targetSpeed = 0.15 + norm * 2.5;
     currentAnimSpeed += (targetSpeed - currentAnimSpeed) * SMOOTHING;
 
     if(!spinning){
@@ -228,7 +238,7 @@ client.on("message",(_,msg)=>{
       viewer.play();
       spinning=true;
     }
-    viewer.animationSpeed=currentAnimSpeed;
+    viewer.animationSpeed = currentAnimSpeed;
 
     sound.rate(0.6 + norm * 1.6);
     if(!sound.playing()) sound.play();
@@ -239,7 +249,7 @@ client.on("message",(_,msg)=>{
 /* ================= AR ================= */
 document.getElementById("arBtn").onclick=async()=>{
   if(viewer.canActivateAR) await viewer.activateAR();
-  else alert("WebXR not supported");
+  else alert("WebXR not supported (use Chrome)");
 };
 </script>
 
