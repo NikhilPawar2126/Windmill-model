@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Wind Turbine Digital Twin – AR + MQTT</title>
+
+<!-- MODEL VIEWER -->
+<script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+
+<!-- MQTT -->
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+<!-- SOUND -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.3/howler.min.js"></script>
+
+<!-- GRAPH -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+  margin: 0;
+  background: #0b1220;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  overflow: hidden;
+}
+
+model-viewer {
+  width: 100vw;
+  height: 100vh;
+}
+
+/* ===== PANEL ===== */
+.panel {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  width: 320px;
+  padding: 18px;
+  background: linear-gradient(180deg,#020617,#020617);
+  border-radius: 18px;
+  box-shadow: 0 30px 60px rgba(0,0,0,0.7);
+  color: #e5e7eb;
+  z-index: 9999;
+}
+
+.panel h3 {
+  margin: 0 0 14px;
+  font-size: 16px;
+  color: #38bdf8;
+  letter-spacing: 0.5px;
+}
+
+.stat {
+  display: flex;
+  justify-content: space-between;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.label {
+  color: #94a3b8;
+}
+
+.value {
+  font-weight: 600;
+  color: #22d3ee;
+}
+
+.value.off { color: #f87171; }
+.value.on  { color: #4ade80; }
+
+canvas {
+  margin-top: 12px;
+}
+
+/* ===== AR BUTTON ===== */
+.ar-btn {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 14px 20px;
+  background: linear-gradient(135deg,#2563eb,#38bdf8);
+  color: #fff;
+  font-weight: 600;
+  border: none;
+  border-radius: 14px;
+  cursor: pointer;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+  z-index: 9999;
+}
+</style>
+</head>
+
+<body>
+
+<!-- MODEL -->
+<model-viewer
+  id="model"
+  src="Model/windmill.glb"
+  camera-controls
+  exposure="1.1"
+  shadow-intensity="1.2"
+  environment-image="neutral"
+  ar
+  ar-modes="webxr"
+  animation-loop="false">
+</model-viewer>
+
+<!-- PANEL -->
+<div class="panel">
+  <h3>🌬 Wind Turbine SCADA</h3>
+
+  <div class="stat">
+    <span class="label">Status</span>
+    <span id="status" class="value off">OFF</span>
+  </div>
+
+  <div class="stat">
+    <span class="label">Wind Speed</span>
+    <span id="wind" class="value">0.0 m/s</span>
+  </div>
+
+  <div class="stat">
+    <span class="label">Rotor Load</span>
+    <span id="load" class="value">0.0 %</span>
+  </div>
+
+  <div class="stat">
+    <span class="label">Power Output</span>
+    <span id="power" class="value">0 kW</span>
+  </div>
+
+  <canvas id="chart" height="130"></canvas>
+</div>
+
+<button class="ar-btn" id="arBtn">View in AR</button>
+
+<script>
+/* ================= ANIMATION ================= */
+let currentAnimSpeed = 0;   // what model is currently using
+const SPEED_MIN = 0.05;    // minimum visible spin
+const SPEED_MAX = 3.0;     // max spin
+const DEAD_ZONE = 0.02;    // ~2% pot ignore
+const SMOOTHING = 0.08;    // lower = smoother
+
+/* ================= CONSTANTS ================= */
+const ADC_MAX = 4095;
+const MAX_WIND = 25;
+const RATED_POWER = 3000;
+
+/* ================= MODEL ================= */
+const viewer = document.getElementById("model");
+
+/* ================= SOUND ================= */
+const sound = new Howl({
+  src: ["sound/windmill.mp3"],
+  loop: true,
+  volume: 0.6
+});
+window.addEventListener("click",()=>{ try{sound.play();sound.pause();}catch{} });
+
+/* ================= GRAPH ================= */
+const chart = new Chart(document.getElementById("chart"),{
+  type:"line",
+  data:{ labels:[], datasets:[{
+    data:[],
+    borderColor:"#38bdf8",
+    borderWidth:2,
+    tension:0.35,
+    pointRadius:0
+  }]},
+  options:{
+    animation:false,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:{display:false},
+      y:{min:0,max:RATED_POWER}
+    }
+  }
+});
+
+/* ================= MQTT ================= */
+const client = mqtt.connect("wss://broker.hivemq.com:8884/mqtt");
+
+let spinning = false;
+
+/* ================= HELPERS ================= */
+const clamp = (v,min,max)=>Math.min(Math.max(v,min),max);
+
+/* ================= STOP ================= */
+function stopSystem(){
+  viewer.pause();
+  sound.stop();
+  spinning = false;
+}
+
+/* ================= MQTT HANDLER ================= */
+client.on("connect",()=>client.subscribe("Equanimous/AR/sensor"));
+client.on("offline", stopSystem);
+client.on("close", stopSystem);
+
+client.on("message",(_,msg)=>{
+  try{
+    const d = JSON.parse(msg.toString());
+    const sw  = Number(d.Switch1)||0;
+    const pot = Number(d.Pot1)||0;
+
+    const norm = clamp(pot / ADC_MAX, 0, 1);
+    const wind = norm * MAX_WIND;
+    const power = RATED_POWER * Math.pow(norm,3);
+    const load = (power / RATED_POWER) * 100;
+
+    // UI
+    const statusEl = document.getElementById("status");
+    statusEl.textContent = sw ? "ON" : "OFF";
+    statusEl.className = "value " + (sw ? "on" : "off");
+
+    document.getElementById("wind").textContent  = wind.toFixed(2)+" m/s";
+    document.getElementById("load").textContent  = load.toFixed(1)+" %";
+    document.getElementById("power").textContent = power.toFixed(0)+" kW";
+
+    chart.data.labels.push("");
+    chart.data.datasets[0].data.push(power);
+    if(chart.data.labels.length>30){
+      chart.data.labels.shift();
+      chart.data.datasets[0].data.shift();
+    }
+    chart.update();
+
+    // LOGIC
+    if(!sw || norm === 0){
+      stopSystem();
+      return;
+    }
+
+    if(!spinning){
+      viewer.animationName = "Animation";
+      viewer.play();
+      spinning = true;
+    }
+
+    sound.rate(0.6 + norm * 1.6);
+    if(!sound.playing()) sound.play();
+
+  }catch(e){}
+});
+/* ================= ANIMATION LOOP ================= */
+let targetSpeed = 0;
+
+if (norm > DEAD_ZONE) {
+  // map 0–1 → usable animation range
+  targetSpeed = SPEED_MIN + (norm * (SPEED_MAX - SPEED_MIN));
+}
+
+// Smooth ramp (LERP)
+currentAnimSpeed += (targetSpeed - currentAnimSpeed) * SMOOTHING;
+
+// Apply
+viewer.animationSpeed = currentAnimSpeed;
+
+// Stop animation completely if speed is ~0
+if (currentAnimSpeed < 0.01) {
+  viewer.pause();
+  spinning = false;
+} else {
+  if (!spinning) {
+    viewer.animationName = "Animation";
+    viewer.play();
+    spinning = true;
+  }
+}
+/* ================= AR ================= */
+document.getElementById("arBtn").onclick = async ()=>{
+  if(viewer.canActivateAR) await viewer.activateAR();
+  else alert("WebXR not supported");
+};
+</script>
+
+</body>
+</html>
