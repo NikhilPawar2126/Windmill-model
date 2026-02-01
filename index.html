@@ -18,24 +18,24 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
-body {
-  margin: 0;
-  background: #0b1220;
-  font-family: system-ui, sans-serif;
-  overflow: hidden;
+body{
+  margin:0;
+  background:#0b1220;
+  font-family:system-ui,sans-serif;
+  overflow:hidden;
 }
 
-model-viewer {
-  width: 100vw;
-  height: 100vh;
+/* MODEL */
+model-viewer{
+  width:100vw;
+  height:100vh;
 }
 
-/* ===== OVERLAY ROOT (REQUIRED) ===== */
+/* ===== OVERLAY ROOT (REQUIRED FOR AR) ===== */
 #overlay {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 10;
 }
 
 .panel,
@@ -43,52 +43,59 @@ model-viewer {
   pointer-events: auto;
 }
 
-/* PANEL */
-.panel {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  width: min(92vw, 260px);
-  background: linear-gradient(180deg,#020617,#020617);
-  border-radius: 14px;
-  padding: 12px;
-  color: #e5e7eb;
-  box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+
+/* ===== PANEL ===== */
+.panel{
+  position:absolute;
+  top:10px;
+  left:10px;
+  width:min(92vw,260px);
+  max-height:85vh;
+  background:linear-gradient(180deg,#020617,#020617);
+  border-radius:14px;
+  padding:12px;
+  color:#e5e7eb;
+  box-shadow:0 15px 35px rgba(0,0,0,0.6);
+  overflow:auto;
+  pointer-events:auto;
 }
 
-.panel h3 {
-  margin: 0 0 8px;
-  font-size: 14px;
-  color: #38bdf8;
+.panel h3{
+  margin:0 0 8px;
+  font-size:14px;
+  color:#38bdf8;
 }
 
-.stat {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  margin: 4px 0;
+.stat{
+  display:flex;
+  justify-content:space-between;
+  margin:5px 0;
+  font-size:12px;
 }
 
-.label { color: #94a3b8; }
-.value { font-weight: 600; color: #22d3ee; }
-.value.on { color: #4ade80; }
-.value.off { color: #f87171; }
+.label{color:#94a3b8;}
+.value{font-weight:600;color:#22d3ee;}
+.value.on{color:#4ade80;}
+.value.off{color:#f87171;}
 
-canvas { margin-top: 8px; }
+canvas{
+  margin-top:8px;
+}
 
-/* AR BUTTON */
-.ar-btn {
-  position: absolute;
-  bottom: 16px;
-  right: 16px;
-  padding: 14px 18px;
-  border-radius: 14px;
-  border: none;
-  background: linear-gradient(135deg,#2563eb,#38bdf8);
-  color: white;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+/* ===== AR BUTTON ===== */
+.ar-btn{
+  position:absolute;
+  bottom:16px;
+  right:16px;
+  padding:14px 18px;
+  border-radius:14px;
+  border:none;
+  background:linear-gradient(135deg,#2563eb,#38bdf8);
+  color:#fff;
+  font-weight:600;
+  cursor:pointer;
+  pointer-events:auto;
+  box-shadow:0 15px 35px rgba(0,0,0,0.6);
 }
 </style>
 </head>
@@ -115,51 +122,79 @@ canvas { margin-top: 8px; }
   animation-loop="false">
 </model-viewer>
 
+
+<!-- OVERLAY -->
 <div id="overlay">
 
   <div class="panel">
     <h3>🌬 Wind Turbine SCADA</h3>
-    <div class="stat"><span class="label">Status</span><span id="status" class="value off">OFF</span></div>
-    <div class="stat"><span class="label">Wind</span><span id="wind" class="value">0.0 m/s</span></div>
-    <div class="stat"><span class="label">Load</span><span id="load" class="value">0 %</span></div>
-    <div class="stat"><span class="label">Power</span><span id="power" class="value">0 kW</span></div>
+
+    <div class="stat"><span class="label">Status</span>
+      <span id="status" class="value off">OFF</span>
+    </div>
+
+    <div class="stat"><span class="label">Wind Speed</span>
+      <span id="wind" class="value">0.0 m/s</span>
+    </div>
+
+    <div class="stat"><span class="label">Rotor Load</span>
+      <span id="load" class="value">0 %</span>
+    </div>
+
+    <div class="stat"><span class="label">Power Output</span>
+      <span id="power" class="value">0 kW</span>
+    </div>
+
     <canvas id="chart" height="100"></canvas>
   </div>
 
   <button class="ar-btn" id="arBtn">View in AR</button>
-
 </div>
 
 <script>
+/* ================= CONSTANTS ================= */
 const ADC_MAX = 4095;
 const MAX_WIND = 25;
 const RATED_POWER = 3000;
 const SMOOTHING = 0.08;
 
+/* ================= MODEL ================= */
 const viewer = document.getElementById("model");
 
-/* SOUND */
+/* ================= SOUND ================= */
 const sound = new Howl({
-  src: ["sound/windmill.mp3"],
-  loop: true,
-  volume: 0.6
+  src:["sound/windmill.mp3"],
+  loop:true,
+  volume:0.6
 });
 window.addEventListener("click",()=>{try{sound.play();sound.pause();}catch{}});
 
-/* CHART */
+/* ================= GRAPH ================= */
 const chart = new Chart(document.getElementById("chart"),{
   type:"line",
-  data:{labels:[],datasets:[{data:[],borderColor:"#38bdf8",borderWidth:2,tension:0.35,pointRadius:0}]},
-  options:{animation:false,plugins:{legend:{display:false}},scales:{x:{display:false},y:{min:0,max:RATED_POWER}}}
+  data:{labels:[],datasets:[{
+    data:[],
+    borderColor:"#38bdf8",
+    borderWidth:2,
+    tension:0.35,
+    pointRadius:0
+  }]},
+  options:{
+    animation:false,
+    plugins:{legend:{display:false}},
+    scales:{x:{display:false},y:{min:0,max:RATED_POWER}}
+  }
 });
 
-/* MQTT */
+/* ================= MQTT ================= */
 const client = mqtt.connect("wss://broker.hivemq.com:8884/mqtt");
 
+/* ================= STATE ================= */
 let currentAnimSpeed = 0;
 let spinning = false;
 
-const clamp = (v,min,max)=>Math.min(Math.max(v,min),max);
+/* ================= HELPERS ================= */
+const clamp=(v,min,max)=>Math.min(Math.max(v,min),max);
 
 function stopSystem(){
   viewer.pause();
@@ -168,6 +203,7 @@ function stopSystem(){
   spinning = false;
 }
 
+/* ================= MQTT HANDLER ================= */
 client.on("connect",()=>client.subscribe("Equanimous/AR/sensor"));
 client.on("offline",stopSystem);
 client.on("close",stopSystem);
@@ -178,11 +214,12 @@ client.on("message",(_,msg)=>{
     const sw = Number(d.Switch1)||0;
     const pot = Number(d.Pot1)||0;
 
-    const norm = clamp(pot/ADC_MAX,0,1);
+    const norm = clamp(pot / ADC_MAX,0,1);
     const wind = norm * MAX_WIND;
     const power = RATED_POWER * Math.pow(norm,3);
-    const load = power / RATED_POWER * 100;
+    const load = (power / RATED_POWER) * 100;
 
+    // UI
     const statusEl=document.getElementById("status");
     statusEl.textContent=sw?"ON":"OFF";
     statusEl.className="value "+(sw?"on":"off");
@@ -199,31 +236,31 @@ client.on("message",(_,msg)=>{
     }
     chart.update();
 
-    if(!sw || norm===0){
+    if(!sw || norm === 0){
       stopSystem();
       return;
     }
 
     const targetSpeed = 0.15 + norm * 2.5;
-    currentAnimSpeed += (targetSpeed-currentAnimSpeed)*SMOOTHING;
+    currentAnimSpeed += (targetSpeed - currentAnimSpeed) * SMOOTHING;
 
     if(!spinning){
       viewer.animationName="Animation";
       viewer.play();
       spinning=true;
     }
-    viewer.animationSpeed=currentAnimSpeed;
+    viewer.animationSpeed = currentAnimSpeed;
 
-    sound.rate(0.6+norm*1.6);
+    sound.rate(0.6 + norm * 1.6);
     if(!sound.playing()) sound.play();
 
   }catch(e){}
 });
 
-/* AR */
+/* ================= AR ================= */
 document.getElementById("arBtn").onclick=async()=>{
   if(viewer.canActivateAR) await viewer.activateAR();
-  else alert("Use Android Chrome with HTTPS");
+  else alert("WebXR not supported (use Chrome)");
 };
 </script>
 
