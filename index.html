@@ -24,41 +24,57 @@ body{
   font-family:system-ui,sans-serif;
   overflow:hidden;
 }
+
+/* MODEL */
 model-viewer{
   width:100vw;
   height:100vh;
 }
 
-/* ===== PANEL ===== */
+/* ===== PANEL (RESPONSIVE + AR SAFE) ===== */
 .panel{
   position:fixed;
-  top:12px;
-  left:12px;
-  width:280px;
-  max-width:90vw;
+  top:10px;
+  left:10px;
+  width:min(92vw,260px);
+  max-height:90vh;
   background:linear-gradient(180deg,#020617,#020617);
-  border-radius:16px;
-  padding:14px;
+  border-radius:14px;
+  padding:12px;
   color:#e5e7eb;
-  box-shadow:0 20px 40px rgba(0,0,0,0.6);
+  box-shadow:0 15px 35px rgba(0,0,0,0.6);
   z-index:9999;
+  overflow:auto;
 }
+
+/* Mobile optimization */
+@media (max-width:600px){
+  .panel{
+    font-size:12px;
+    padding:10px;
+  }
+}
+
 .panel h3{
-  margin:0 0 10px;
-  font-size:15px;
+  margin:0 0 8px;
+  font-size:14px;
   color:#38bdf8;
 }
+
 .stat{
   display:flex;
   justify-content:space-between;
-  font-size:13px;
-  margin:6px 0;
+  margin:5px 0;
 }
+
 .label{color:#94a3b8;}
 .value{font-weight:600;color:#22d3ee;}
 .value.on{color:#4ade80;}
 .value.off{color:#f87171;}
-canvas{margin-top:10px;}
+
+canvas{
+  margin-top:8px;
+}
 
 /* ===== AR BUTTON ===== */
 .ar-btn{
@@ -80,7 +96,7 @@ canvas{margin-top:10px;}
 
 <body>
 
-<!-- MODEL -->
+<!-- MODEL (DOM OVERLAY ENABLED) -->
 <model-viewer
   id="model"
   src="Model/windmill.glb"
@@ -92,27 +108,34 @@ canvas{margin-top:10px;}
   ar-modes="webxr"
   ar-scale="auto"
   ar-placement="floor"
+  ar-dom-overlay
+  ar-dom-overlay-root="overlay"
   animation-loop="false">
 </model-viewer>
 
-<!-- PANEL -->
-<div class="panel">
-  <h3>🌬 Wind Turbine SCADA</h3>
-  <div class="stat"><span class="label">Status</span><span id="status" class="value off">OFF</span></div>
-  <div class="stat"><span class="label">Wind Speed</span><span id="wind" class="value">0.0 m/s</span></div>
-  <div class="stat"><span class="label">Rotor Load</span><span id="load" class="value">0 %</span></div>
-  <div class="stat"><span class="label">Power Output</span><span id="power" class="value">0 kW</span></div>
-  <canvas id="chart" height="120"></canvas>
-</div>
+<!-- OVERLAY ROOT (CRITICAL) -->
+<div id="overlay">
 
-<button class="ar-btn" id="arBtn">View in AR</button>
+  <!-- PANEL -->
+  <div class="panel">
+    <h3>🌬 Wind Turbine SCADA</h3>
+    <div class="stat"><span class="label">Status</span><span id="status" class="value off">OFF</span></div>
+    <div class="stat"><span class="label">Wind Speed</span><span id="wind" class="value">0.0 m/s</span></div>
+    <div class="stat"><span class="label">Rotor Load</span><span id="load" class="value">0 %</span></div>
+    <div class="stat"><span class="label">Power</span><span id="power" class="value">0 kW</span></div>
+    <canvas id="chart" height="110"></canvas>
+  </div>
+
+  <button class="ar-btn" id="arBtn">View in AR</button>
+
+</div>
 
 <script>
 /* ================= CONSTANTS ================= */
 const ADC_MAX = 4095;
-const MAX_WIND = 25;      // m/s
-const RATED_POWER = 3000; // kW
-const SMOOTHING = 0.08;   // animation smoothness
+const MAX_WIND = 25;
+const RATED_POWER = 3000;
+const SMOOTHING = 0.08;
 
 /* ================= MODEL ================= */
 const viewer = document.getElementById("model");
@@ -152,7 +175,6 @@ let spinning = false;
 /* ================= HELPERS ================= */
 const clamp=(v,min,max)=>Math.min(Math.max(v,min),max);
 
-/* ================= STOP SYSTEM ================= */
 function stopSystem(){
   viewer.pause();
   sound.stop();
@@ -171,13 +193,12 @@ client.on("message",(_,msg)=>{
     const sw = Number(d.Switch1)||0;
     const pot = Number(d.Pot1)||0;
 
-    /* ---- NORMALIZATION (THE KEY FIX) ---- */
     const norm = clamp(pot / ADC_MAX,0,1);
     const wind = norm * MAX_WIND;
     const power = RATED_POWER * Math.pow(norm,3);
     const load = (power / RATED_POWER) * 100;
 
-    /* ---- UI ---- */
+    // UI
     const statusEl=document.getElementById("status");
     statusEl.textContent=sw?"ON":"OFF";
     statusEl.className="value "+(sw?"on":"off");
@@ -194,14 +215,12 @@ client.on("message",(_,msg)=>{
     }
     chart.update();
 
-    /* ---- LOGIC ---- */
     if(!sw || norm===0){
       stopSystem();
       return;
     }
 
-    /* ---- SMOOTH ANIMATION SPEED ---- */
-    const targetSpeed = 0.1 + norm * 2.5; // real scaling
+    const targetSpeed = 0.1 + norm * 2.5;
     currentAnimSpeed += (targetSpeed - currentAnimSpeed) * SMOOTHING;
 
     if(!spinning){
@@ -211,7 +230,6 @@ client.on("message",(_,msg)=>{
     }
     viewer.animationSpeed=currentAnimSpeed;
 
-    /* ---- SOUND SYNC ---- */
     sound.rate(0.6 + norm * 1.6);
     if(!sound.playing()) sound.play();
 
